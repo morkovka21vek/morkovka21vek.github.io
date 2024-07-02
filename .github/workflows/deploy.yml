@@ -1,0 +1,60 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Generate updated index.html
+        run: |
+          set -euo pipefail
+
+          USER="Morkovka21Vek"
+          REPOS_JSON=$(mktemp)
+
+          curl -s "https://api.github.com/users/$USER/repos?per_page=100" > "$REPOS_JSON"
+
+          PROJECT_LIST=""
+
+          while IFS= read -r repo; do
+            name=$(echo "$repo" | jq -r '.name')
+            fork=$(echo "$repo" | jq -r '.fork')
+            html_url=$(echo "$repo" | jq -r '.html_url')
+
+            if [[ "$fork" == "true" ]]; then
+              continue
+            fi
+
+            PROJECT_LIST+="<a href=\"$html_url\">$name</a>"
+          done < <(jq -c '.[]' "$REPOS_JSON")
+
+          mv index.html index_template.html
+          sed "/<!-- Placeholder for Projects -->/{
+              r /dev/stdin
+              d
+          }" index_template.html <<< "$PROJECT_LIST" > index.html
+          rm index_template.html
+
+      - name: HTML/CSS/JS Minifier
+        uses: docker://devatherock/minify-js:3.1.0
+        with:
+          add_suffix: false
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4.1.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: .
+          clean: true
